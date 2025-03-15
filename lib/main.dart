@@ -28,26 +28,45 @@ class _MyAppState extends State<MyApp> {
 
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
-      home: Scaffold(
-        appBar: AppBar(title: const Text('Plugin example app')),
-        body: Center(
-          child: ElevatedButton(
-            onPressed: () async {
-              // _flutterMediaDownloaderPlugin.downloadMedia(
-              //   context,
+    return MaterialApp(home: DownloadScreen());
+  }
+}
 
-              //   // "https://www.w3.org/WAI/ER/tests/xhtml/testfiles/resources/pdf/dummy.pdf",
-              //   // 'https://fastly.picsum.photos/id/893/200/300.jpg?hmac=7jsxm2l6ji-5CBnfrJO7IqDUekLtP4PvA7taLcRW2NI',
-              //   // 'https://www.kasandbox.org/programming-images/avatars/spunky-sam-green.png',
-              //   "https://morth.nic.in/sites/default/files/dd12-13_0.pdf",
-              // );
-              openFile(
-                url: "https://morth.nic.in/sites/default/files/dd12-13_0.pdf",
-              );
-            },
-            child: const Text('Media Download'),
-          ),
+class DownloadScreen extends StatefulWidget {
+  const DownloadScreen({super.key});
+
+  @override
+  _DownloadScreenState createState() => _DownloadScreenState();
+}
+
+class _DownloadScreenState extends State<DownloadScreen> {
+  bool isDownloading = false;
+
+  void startDownload() async {
+    setState(() => isDownloading = true);
+
+    File? file = await FileDownloader.downloadFile(
+      "https://morth.nic.in/sites/default/files/dd12-13_0.pdf",
+      "downloaded_document.pdf",
+    );
+
+    if (file != null) {
+      await FileDownloader.openFile(file);
+    } else {
+      debugPrint("Download failed");
+    }
+
+    setState(() => isDownloading = false);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: Text("Download Manager")),
+      body: Center(
+        child: ElevatedButton(
+          onPressed: isDownloading ? null : startDownload,
+          child: Text(isDownloading ? "Downloading..." : "Download PDF"),
         ),
       ),
     );
@@ -63,14 +82,23 @@ Future openFile({required String url, String? fileName}) async {
 }
 
 Future<File?> downloadFile(String url, String fileName) async {
+  Directory? appStorage;
   try {
-    final appStorage = await getApplicationDocumentsDirectory();
-    final file = File('${appStorage.path}/$fileName');
+    if (Platform.isAndroid) {
+      // appStorage = await getExternalStorageDirectory();
+      appStorage = Directory('/storage/emulated/0/Download/');
+    } else if (Platform.isIOS) {
+      appStorage = await getApplicationDocumentsDirectory();
+    }
+
+    final file = File('${appStorage!.path}/$fileName');
     if (await file.exists()) {
       return file;
     }
-    final response = await Dio().get(
+
+    final response = await Dio().download(
       url,
+      file.path,
       options: Options(
         responseType: ResponseType.bytes,
         followRedirects: false,
@@ -88,5 +116,53 @@ Future<File?> downloadFile(String url, String fileName) async {
   } catch (e) {
     print('Error: $e');
     return null;
+  }
+}
+
+class FileDownloader {
+  static Future<String?> getDownloadDirectory() async {
+    if (Platform.isAndroid) {
+      return "/storage/emulated/0/Download"; // Scoped Storage compliant
+    } else {
+      final directory = await getApplicationDocumentsDirectory();
+      return directory.path;
+    }
+  }
+
+  static Future<File?> downloadFile(String url, String fileName) async {
+    try {
+      final directoryPath = await getDownloadDirectory();
+      if (directoryPath == null) {
+        debugPrint("Failed to get download directory");
+        return null;
+      }
+
+      final file = File('$directoryPath/$fileName');
+
+      final response = await Dio().download(
+        url,
+        file.path,
+        onReceiveProgress: (received, total) {
+          debugPrint("Download Progress: $received/$total");
+        },
+      );
+
+      if (response.statusCode == 200) {
+        debugPrint("File downloaded: ${file.path}");
+        return file;
+      } else {
+        debugPrint("Failed to download file");
+        return null;
+      }
+    } catch (e) {
+      debugPrint("Error downloading file: $e");
+      return null;
+    }
+  }
+
+  static Future<void> openFile(File? file) async {
+    if (file == null) return;
+    final result = await OpenFile.open(file.path);
+    debugPrint("Open file result: $result");
   }
 }
