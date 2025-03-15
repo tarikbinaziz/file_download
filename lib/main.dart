@@ -1,8 +1,10 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:dio/dio.dart';
+import 'package:fl_downloader/fl_downloader.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter_media_downloader/flutter_media_downloader.dart';
+// import 'package:flutter_media_downloader/flutter_media_downloader.dart';
 import 'package:open_file/open_file.dart';
 import 'package:path_provider/path_provider.dart';
 
@@ -19,7 +21,7 @@ class MyApp extends StatefulWidget {
 }
 
 class _MyAppState extends State<MyApp> {
-  final _flutterMediaDownloaderPlugin = MediaDownload();
+  // final _flutterMediaDownloaderPlugin = MediaDownload();
 
   @override
   void initState() {
@@ -41,33 +43,58 @@ class DownloadScreen extends StatefulWidget {
 
 class _DownloadScreenState extends State<DownloadScreen> {
   bool isDownloading = false;
+  late StreamSubscription progressStream;
+  int progress = 0;
 
-  void startDownload() async {
-    setState(() => isDownloading = true);
+  @override
+  void initState() {
+    super.initState();
+    FlDownloader.initialize();
+    progressStream = FlDownloader.progressStream.listen((event) {
+      if (event.status == DownloadStatus.successful) {
+        setState(() {
+          progress = event.progress;
+        });
+        FlDownloader.openFile(filePath: event.filePath);
+      } else if (event.status == DownloadStatus.running) {
+        setState(() {
+          progress = event.progress;
+        });
+      } else if (event.status == DownloadStatus.failed) {
+        print('Failed');
+      }
+    });
+  }
 
-    File? file = await FileDownloader.downloadFile(
-      "https://morth.nic.in/sites/default/files/dd12-13_0.pdf",
-      "downloaded_document.pdf",
-    );
-
-    if (file != null) {
-      await FileDownloader.openFile(file);
-    } else {
-      debugPrint("Download failed");
-    }
-
-    setState(() => isDownloading = false);
+  @override
+  void dispose() {
+    super.dispose();
+    progressStream.cancel();
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(title: Text("Download Manager")),
-      body: Center(
-        child: ElevatedButton(
-          onPressed: isDownloading ? null : startDownload,
-          child: Text(isDownloading ? "Downloading..." : "Download PDF"),
-        ),
+      body: Column(
+        children: [
+          Text("Progress: $progress"),
+          SizedBox(height: 20),
+          Center(
+            child: ElevatedButton(
+              onPressed: () async {
+                var permission = await FlDownloader.requestPermission();
+                print(permission);
+                if (permission == StoragePermissionStatus.granted) {
+                  FlDownloader.download(
+                    "https://morth.nic.in/sites/default/files/dd12-13_0.pdf",
+                  );
+                }
+              },
+              child: Text(isDownloading ? "Downloading..." : "Download PDF"),
+            ),
+          ),
+        ],
       ),
     );
   }
