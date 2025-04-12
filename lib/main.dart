@@ -2,31 +2,23 @@ import 'dart:io';
 
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
-// import 'package:flutter_media_downloader/flutter_media_downloader.dart';
-import 'package:open_file/open_file.dart';
+import 'package:flutter_file_dialog/flutter_file_dialog.dart';
 import 'package:path_provider/path_provider.dart';
 
+// perfect downloading with dio and flutter_file_dialog
 void main() {
   runApp(const MyApp());
-  WidgetsFlutterBinding.ensureInitialized();
 }
 
-class MyApp extends StatefulWidget {
+class MyApp extends StatelessWidget {
   const MyApp({super.key});
-
-  @override
-  State<MyApp> createState() => _MyAppState();
-}
-
-class _MyAppState extends State<MyApp> {
-  @override
-  void initState() {
-    super.initState();
-  }
-
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(home: DownloadScreen());
+    return MaterialApp(
+      title: 'PDF Downloader',
+      theme: ThemeData(primarySwatch: Colors.blue),
+      home: const DownloadScreen(),
+    );
   }
 }
 
@@ -34,87 +26,98 @@ class DownloadScreen extends StatefulWidget {
   const DownloadScreen({super.key});
 
   @override
-  _DownloadScreenState createState() => _DownloadScreenState();
+  State<DownloadScreen> createState() => _DownloadScreenState();
 }
 
 class _DownloadScreenState extends State<DownloadScreen> {
   bool isDownloading = false;
+  double progress = 0.0;
 
-  void startDownload() async {
-    setState(() => isDownloading = true);
+  Future<void> downloadAndSavePdf() async {
+    const url = "https://morth.nic.in/sites/default/files/dd12-13_0.pdf";
+      // 🔹 Get file name from URL
+    // final fileName = Uri.parse(url).pathSegments.last;
+    final fileName = url.split('/').last;
 
-    File? file = await FileDownloader.downloadFile(
-      "https://morth.nic.in/sites/default/files/dd12-13_0.pdf",
-      "downloaded_document.pdf",
-    );
+    try {
+      setState(() {
+        isDownloading = true;
+        progress = 0;
+      });
 
-    if (file != null) {
-      await FileDownloader.openFile(file);
-    } else {
-      debugPrint("Download failed");
+      // Get app document directory
+      final dir = await getApplicationDocumentsDirectory();
+      final filePath = "${dir.path}/$fileName";
+
+      // Download using Dio
+      final dio = Dio();
+      await dio.download(
+        url,
+        filePath,
+        onReceiveProgress: (received, total) {
+          if (total != -1) {
+            setState(() {
+              progress = received / total;
+            });
+          }
+        },
+      );
+
+      final file = File(filePath);
+      if (await file.exists()) {
+        // Open file dialog to save
+        final params = SaveFileDialogParams(sourceFilePath: file.path);
+        final savedPath = await FlutterFileDialog.saveFile(params: params);
+
+        if (savedPath != null) {
+          ScaffoldMessenger.of(
+            context,
+          ).showSnackBar(SnackBar(content: Text('File saved to: $savedPath')));
+        } else {
+          ScaffoldMessenger.of(
+            context,
+          ).showSnackBar(const SnackBar(content: Text('File save cancelled')));
+        }
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Download failed: file not found')),
+        );
+      }
+    } catch (e) {
+      print("❌ Download error: $e");
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Error: $e')));
+    } finally {
+      setState(() {
+        isDownloading = false;
+      });
     }
-
-    setState(() => isDownloading = false);
   }
 
   @override
   Widget build(BuildContext context) {
+    final progressPercent = (progress * 100).toStringAsFixed(1);
+
     return Scaffold(
-      appBar: AppBar(title: Text("Download Manager")),
+      appBar: AppBar(title: const Text('PDF Downloader')),
       body: Center(
-        child: ElevatedButton(
-          onPressed: isDownloading ? null : startDownload,
-          child: Text(isDownloading ? "Downloading..." : "Download PDF"),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            if (isDownloading) ...[
+              Text("Downloading: $progressPercent%"),
+              const SizedBox(height: 20),
+              CircularProgressIndicator(value: progress),
+            ] else ...[
+              ElevatedButton(
+                onPressed: downloadAndSavePdf,
+                child: const Text("Download & Save PDF"),
+              ),
+            ],
+          ],
         ),
       ),
     );
-  }
-}
-
-class FileDownloader {
-  static Future<String?> getDownloadDirectory() async {
-    if (Platform.isAndroid) {
-      return "/storage/emulated/0/Download"; // Scoped Storage compliant
-    } else {
-      final directory = await getApplicationDocumentsDirectory();
-      return directory.path;
-    }
-  }
-
-  static Future<File?> downloadFile(String url, String fileName) async {
-    try {
-      final directoryPath = await getDownloadDirectory();
-      if (directoryPath == null) {
-        debugPrint("Failed to get download directory");
-        return null;
-      }
-
-      final file = File('$directoryPath/$fileName');
-
-      final response = await Dio().download(
-        url,
-        file.path,
-        onReceiveProgress: (received, total) {
-          debugPrint("Download Progress: $received/$total");
-        },
-      );
-
-      if (response.statusCode == 200) {
-        debugPrint("File downloaded: ${file.path}");
-        return file;
-      } else {
-        debugPrint("Failed to download file");
-        return null;
-      }
-    } catch (e) {
-      debugPrint("Error downloading file: $e");
-      return null;
-    }
-  }
-
-  static Future<void> openFile(File? file) async {
-    if (file == null) return;
-    final result = await OpenFile.open(file.path);
-    debugPrint("Open file result: $result");
   }
 }
