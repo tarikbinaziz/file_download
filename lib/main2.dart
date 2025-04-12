@@ -6,6 +6,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_file_dialog/flutter_file_dialog.dart';
 import 'package:path_provider/path_provider.dart';
 
+
+// Recommended No 2
 // perfect downloading with fl_downloader and flutter_file_dialog
 void main() {
   runApp(const MyApp());
